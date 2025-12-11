@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Catálogo Multi-Moneda</title>
+    
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <header>
+        <div class="header-top">
+            <h1>Inventario</h1>
+            <div class="rate-control">
+                <label>Tasa Bs:</label>
+                <input type="number" id="exchangeRate" step="0.01" value="40.00" onchange="updateRate(this.value)">
+            </div>
+        </div>
+    </header>
+
+    <div class="search-container">
+        <span style="font-size: 1.2rem; margin-right: 8px;">🔍</span>
+        <input type="text" id="searchInput" placeholder="Buscar producto...">
+        <button class="btn-scan-mini" onclick="startScanner('search')">📷</button>
+    </div>
+
+    <div id="productList" class="grid"></div>
+    
+    <div id="emptyState" style="text-align: center; padding: 40px; color: #6B7280; display: none;">
+        <p>No hay productos aún.</p>
+    </div>
+
+    <button class="fab fab-cart" onclick="openCartModal()">🛒</button>
+    <button class="fab" onclick="openModal('productModal')">+</button>
+
+    <div class="modal-overlay" id="productModal">
+        <div class="modal-card">
+            <h2 style="color: var(--primary); margin-bottom: 15px;">Nuevo Producto</h2>
+            
+            <form onsubmit="saveProduct(event)">
+                <div class="form-group">
+                    <label class="form-label">Código de Barras</label>
+                    <div class="input-row">
+                        <input type="text" id="prodCode" class="form-input" placeholder="Escanear o escribir...">
+                        <button type="button" class="btn-secondary" onclick="startScanner('input')">📷</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Nombre</label>
+                    <input type="text" id="prodName" class="form-input" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Precio en Dólares ($)</label>
+                    <input type="number" id="prodPrice" step="0.01" class="form-input" required placeholder="0.00" oninput="calculateBsPrice()">
+                    <small style="color: #6B7280;">Precio en Bs: <span id="displayBsPrice" style="font-weight: bold;">0.00</span></small>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Foto (Seleccionar o Capturar)</label>
+                    <div style="border: 2px dashed #ccc; padding: 10px; text-align: center; border-radius: 12px;">
+                        <input type="file" id="prodImgFile" accept="image/*" onchange="handleImage(this)">
+                        <img id="previewImg" style="max-height: 100px; display: none; margin: 10px auto;">
+                        <input type="hidden" id="prodImgBase64">
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" onclick="closeModal('productModal')" class="btn-secondary" style="flex:1">Cancelar</button>
+                    <button type="submit" class="btn-primary" style="flex:1">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="cartModal">
+        <div class="modal-card">
+            <h2 style="color: var(--primary); margin-bottom: 15px;">🛒 Carrito de Compras</h2>
+            
+            <div id="cartItems">
+            </div>
+
+            <div class="cart-summary">
+                <div class="cart-total-row">
+                    <span>Total USD:</span>
+                    <span id="cartTotalUSD"></span>
+                </div>
+                <div class="cart-total-row">
+                    <span class="total-bs-final">TOTAL BS:</span>
+                    <span id="cartTotalBS" class="total-bs-final"></span>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button type="button" onclick="clearCart()" class="btn-secondary" style="flex:1">Vaciar Carrito</button>
+                <button type="button" onclick="closeModal('cartModal')" class="btn-primary" style="flex:1">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="scannerModal">
+        <div class="modal-card" style="background: black; padding: 10px; border: 1px solid #333;">
+            <div style="color: white; margin-bottom: 10px; display: flex; justify-content: space-between;">
+                <span id="scanTitle">Escaneando...</span>
+                <button onclick="closeModal('scannerModal'); stopScanner();" style="background: #333; color: white; border: none; padding: 5px 10px;">X</button>
+            </div>
+            
+            <div id="httpsError" class="scanner-error-msg">
+                ⚠️ **Error de Permisos:**<br>
+                El navegador bloqueó el video de la cámara. **Asegúrate de abrir esta página usando un enlace HTTPS seguro.**
+            </div>
+
+            <div id="reader" style="width: 100%;"></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
