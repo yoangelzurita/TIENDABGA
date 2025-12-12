@@ -1,304 +1,168 @@
-// --- CONFIGURACIÓN Y ESTADO ---
-const DB_KEY = 'inventario_multi_v1';
-const RATE_KEY = 'tasa_cambio_v1';
-let products = [];
-let currentRate = 40.00;
-let html5QrcodeScanner = null;
-let scanMode = null;
-let isScanning = false;
-
-let cart = {};
-
-// --- INICIO ---
-document.addEventListener('DOMContentLoaded', () => {
-    // Cargar Tasa
-    const storedRate = localStorage.getItem(RATE_KEY);
-    if(storedRate) {
-        currentRate = parseFloat(storedRate);
-        document.getElementById('exchangeRate').value = currentRate.toFixed(2);
-    }
-    // Cargar Productos
-    const storedProds = localStorage.getItem(DB_KEY);
-    if(storedProds) products = JSON.parse(storedProds);
-    
-    renderProducts();
-
-    // Evento para el buscador
-    document.getElementById('searchInput').addEventListener('keyup', (e) => renderProducts(e.target.value));
-});
-
-// --- LÓGICA DE NEGOCIO Y TASA DE CAMBIO ---
-window.updateRate = function(val) {
-    currentRate = parseFloat(val);
-    localStorage.setItem(RATE_KEY, currentRate);
-    renderProducts(); 
-    renderCart();
-    // Recalcular en el modal de producto si está abierto
-    calculateBsPrice();
+/* ================= ESTILOS (CSS) ================= */
+:root {
+    --primary: #FF6F00;
+    --primary-dark: #E65100;
+    --bg-body: #F3F4F6;
+    --white: #FFFFFF;
+    --text: #1F2937;
+    --radius: 12px;
+    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
-/**
- * Función para calcular y mostrar el precio en Bs automáticamente.
- */
-window.calculateBsPrice = function() {
-    const priceUSD = parseFloat(document.getElementById('prodPrice').value);
-    const displayElement = document.getElementById('displayBsPrice');
-    
-    if (!isNaN(priceUSD) && priceUSD > 0) {
-        const priceBs = priceUSD * currentRate;
-        displayElement.textContent = priceBs.toFixed(2);
-    } else {
-        displayElement.textContent = '0.00';
-    }
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+
+body { background-color: var(--bg-body); color: var(--text); padding-bottom: 90px; }
+
+/* HEADER & TASA */
+header {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: var(--white);
+    padding: 1.5rem 1rem 3.5rem 1rem;
+    border-bottom-left-radius: 24px;
+    border-bottom-right-radius: 24px;
+    box-shadow: var(--shadow);
+    position: relative;
 }
 
-window.saveProduct = function(e) {
-    e.preventDefault();
-    const code = document.getElementById('prodCode').value.trim();
-    if(code && products.some(p => p.code === code)) {
-        alert("Ese código ya existe.");
-        return;
-    }
+.header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+h1 { font-size: 1.4rem; font-weight: 800; }
 
-    const newProd = {
-        id: Date.now(),
-        code: code,
-        name: document.getElementById('prodName').value,
-        priceUSD: parseFloat(document.getElementById('prodPrice').value),
-        image: document.getElementById('prodImgBase64').value
-    };
-
-    products.unshift(newProd);
-    try {
-        localStorage.setItem(DB_KEY, JSON.stringify(products));
-    } catch(e) { alert("Memoria llena"); }
-    
-    renderProducts();
-    closeModal('productModal');
-    
-    // Resetear el formulario y display de Bs
-    e.target.reset();
-    document.getElementById('previewImg').style.display = 'none';
-    document.getElementById('prodImgBase64').value = '';
-    document.getElementById('displayBsPrice').textContent = '0.00';
-    
-    alert("✅ Producto Agregado");
+/* CONTROL DE TASA DE CAMBIO */
+.rate-control {
+    background: rgba(255, 255, 255, 0.2);
+    padding: 8px 12px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    backdrop-filter: blur(5px);
+}
+.rate-control label { font-size: 0.9rem; font-weight: 600; }
+.rate-control input {
+    width: 80px;
+    border: none;
+    border-radius: 6px;
+    padding: 5px;
+    text-align: center;
+    font-weight: bold;
+    color: var(--primary-dark);
 }
 
-window.deleteProduct = function(id) {
-    if(confirm("¿Eliminar?")) {
-        products = products.filter(p => p.id !== id);
-        try {
-            localStorage.setItem(DB_KEY, JSON.stringify(products));
-        } catch(e) { alert("Memoria llena"); }
-        renderProducts();
-    }
+/* BUSCADOR FLOTANTE */
+.search-container {
+    margin: -30px auto 20px auto;
+    width: 90%;
+    max-width: 600px;
+    background: var(--white);
+    border-radius: 16px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    position: relative;
+    z-index: 10;
+}
+.search-container input {
+    flex: 1; border: none; outline: none; font-size: 1rem; padding: 8px;
+}
+.btn-scan-mini {
+    background: #FFF3E0; color: var(--primary); border: none; width: 40px; height: 40px;
+    border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 1.2rem;
 }
 
-// --- LÓGICA DEL CARRITO ---
-window.addToCart = function(productId) {
-    if (cart[productId]) {
-        cart[productId]++;
-    } else {
-        cart[productId] = 1;
-    }
-    alert("Producto agregado al carrito.");
-    // No se llama a renderCart aquí ya que solo se ve al abrir el modal.
+/* LISTA DE PRODUCTOS */
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 16px;
+    padding: 0 16px;
+    max-width: 1000px;
+    margin: 0 auto;
+}
+.card {
+    background: var(--white); border-radius: var(--radius); overflow: hidden;
+    box-shadow: var(--shadow); display: flex; flex-direction: column;
+    position: relative; transition: transform 0.1s;
 }
 
-window.clearCart = function() {
-    if(confirm("¿Estás seguro de vaciar el carrito?")) {
-        cart = {};
-        renderCart();
-        alert("Carrito vaciado.");
-        closeModal('cartModal');
-    }
+.card-img-container {
+    width: 100%; height: 140px; background: #eee; position: relative;
+}
+.card-img { width: 100%; height: 100%; object-fit: cover; }
+
+.delete-btn {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(255,255,255,0.95); color: #EF4444;
+    width: 30px; height: 30px; border-radius: 50%; border: none;
+    font-weight: bold; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2); cursor: pointer;
 }
 
-window.renderCart = function() {
-    const itemsContainer = document.getElementById('cartItems');
-    const totalUSDElement = document.getElementById('cartTotalUSD');
-    const totalBSElement = document.getElementById('cartTotalBS');
-    let totalUSD = 0;
-    let itemsHTML = '';
+.card-content { padding: 12px; flex: 1; display: flex; flex-direction: column; }
+.card-title { font-weight: 700; font-size: 1rem; margin-bottom: 4px; color: var(--text); line-height: 1.2; }
+.card-code { font-size: 0.75rem; color: #6B7280; background: #F3F4F6; padding: 2px 6px; border-radius: 4px; align-self: flex-start; margin-bottom: 8px; }
 
-    const cartProductIDs = Object.keys(cart);
-    
-    if (cartProductIDs.length === 0) {
-        itemsHTML = '<p style="text-align: center; color: #6B7280; padding: 20px;">El carrito está vacío.</p>';
-    } else {
-        cartProductIDs.forEach(idStr => {
-            const id = parseInt(idStr);
-            const product = products.find(p => p.id === id);
-            if (product && cart[idStr] > 0) {
-                const quantity = cart[idStr];
-                const itemTotalUSD = product.priceUSD * quantity;
-                totalUSD += itemTotalUSD;
-
-                itemsHTML += `
-                    <div class="cart-item">
-                        <span>${quantity}x ${product.name}</span>
-                        <span class="cart-price">$${itemTotalUSD.toFixed(2)}</span>
-                    </div>
-                `;
-            }
-        });
-    }
-
-    const totalBS = totalUSD * currentRate;
-
-    itemsContainer.innerHTML = itemsHTML;
-    totalUSDElement.textContent = `$${totalUSD.toFixed(2)}`;
-    totalBSElement.textContent = `Bs. ${totalBS.toFixed(2)}`;
+/* PRECIOS DUALES Y BOTÓN AÑADIR */
+.price-box { margin-top: auto; margin-bottom: 8px; }
+.price-usd { font-size: 1.2rem; font-weight: 800; color: var(--text); }
+.price-bs { font-size: 0.95rem; font-weight: 600; color: var(--primary); }
+.btn-add-to-cart {
+    background: #E5E7EB; color: var(--text); border: none; padding: 8px;
+    width: 100%; border-radius: 8px; font-weight: 600; cursor: pointer;
 }
 
-window.openCartModal = function() {
-    renderCart();
-    openModal('cartModal');
+
+/* FABs y MODALES */
+.fab {
+    position: fixed; bottom: 20px; right: 20px; width: 64px; height: 64px;
+    background: var(--primary); color: var(--white); border-radius: 50%; border: none;
+    box-shadow: 0 10px 25px rgba(255, 111, 0, 0.4); font-size: 2rem; cursor: pointer; z-index: 100;
 }
-
-// --- RENDERIZADO DE PRODUCTOS ---
-window.renderProducts = function(filter = '') {
-    const container = document.getElementById('productList');
-    const empty = document.getElementById('emptyState');
-    container.innerHTML = '';
-    
-    const term = filter.toLowerCase();
-    const filtered = products.filter(p => 
-        p.name.toLowerCase().includes(term) || 
-        (p.code && p.code.toLowerCase().includes(term))
-    );
-
-    if (filtered.length === 0) {
-        empty.style.display = 'block'; return;
-    }
-    empty.style.display = 'none';
-
-    filtered.forEach(p => {
-        // Se asegura que la tasa exista antes de calcular.
-        const priceBs = (p.priceUSD * currentRate).toFixed(2);
-        const img = p.image || 'https://via.placeholder.com/150?text=IMG';
-        
-        const html = `
-            <div class="card">
-                <div class="card-img-container">
-                    <img src="${img}" class="card-img">
-                    <button class="delete-btn" onclick="deleteProduct(${p.id})">&times;</button>
-                </div>
-                <div class="card-content">
-                    <div class="card-title">${p.name}</div>
-                    ${p.code ? `<div class="card-code">${p.code}</div>` : ''}
-                    
-                    <div class="price-box">
-                        <div class="price-usd">$${p.priceUSD.toFixed(2)}</div>
-                        <div class="price-bs">Bs. ${priceBs}</div>
-                    </div>
-                    <button class="btn-add-to-cart" onclick="addToCart(${p.id})">🛒 Añadir</button>
-                </div>
-            </div>
-        `;
-        container.innerHTML += html;
-    });
+.fab-cart {
+    bottom: 90px;
+    font-size: 1.5rem;
+    width: 54px; height: 54px;
+    background: #1F2937;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
 }
-
-// --- MANEJO DE IMÁGENES ---
-window.handleImage = function(input) {
-    if (input.files && input.files[0]) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const img = new Image();
-            img.src = e.target.result;
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                const MAX_WIDTH = 400; 
-                const scale = MAX_WIDTH / img.width;
-                canvas.width = MAX_WIDTH; 
-                canvas.height = img.height * scale;
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-                
-                document.getElementById('previewImg').src = dataUrl;
-                document.getElementById('previewImg').style.display = 'block';
-                document.getElementById('prodImgBase64').value = dataUrl;
-            }
-        }
-        reader.readAsDataURL(input.files[0]);
-    }
+.modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.8); z-index: 200; display: none; align-items: center; justify-content: center; backdrop-filter: blur(3px);
 }
-
-// --- ESCÁNER Y MODALES ---
-
-/**
- * Inicia la cámara para escanear.
- * @param {string} mode 'search' para el buscador, 'input' para el código de producto.
- */
-window.startScanner = function(mode) {
-    scanMode = mode;
-    openModal('scannerModal');
-    document.getElementById('httpsError').style.display = 'none'; 
-
-    if(isScanning) return;
-
-    // Advertencia de protocolo (el escáner requiere HTTPS o localhost)
-    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-        document.getElementById('httpsError').style.display = 'block';
-        return;
-    }
-    
-    // Título del modal de escáner
-    document.getElementById('scanTitle').textContent = scanMode === 'search' ? 'Escaneando para Buscar...' : 'Escaneando Código de Barras...';
-
-    html5QrcodeScanner = new Html5Qrcode("reader");
-    const config = { 
-        fps: 20, 
-        qrbox: { width: 250, height: 200 }, 
-        aspectRatio: 1.0
-    };
-    
-    html5QrcodeScanner.start(
-        { facingMode: "environment" },
-        config, 
-        onScanSuccess
-    )
-    .catch(err => {
-        console.error("Error al iniciar la cámara para el escáner:", err);
-        // Si falla la promesa, es probablemente un error de permisos/cámara
-        document.getElementById('httpsError').style.display = 'block';
-    });
-    isScanning = true;
+.modal-overlay.active { display: flex; }
+.modal-card {
+    background: var(--white); width: 90%; max-width: 450px; border-radius: 20px; padding: 24px;
+    max-height: 90vh; overflow-y: auto; animation: slideUp 0.3s ease;
 }
+@keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-window.stopScanner = function() {
-    if (html5QrcodeScanner && isScanning) {
-        html5QrcodeScanner.stop().then(() => {
-            html5QrcodeScanner.clear();
-            isScanning = false;
-        }).catch(err => console.error("Error al detener el escáner:", err));
-    }
-}
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; font-weight: 600; margin-bottom: 6px; }
+.form-input { width: 100%; padding: 12px; border: 2px solid #E5E7EB; border-radius: 12px; font-size: 1rem; }
+.btn-primary { background: var(--primary); color: white; border: none; padding: 14px; width: 100%; border-radius: 12px; font-weight: 700; margin-top: 10px; }
+.input-row { display: flex; gap: 8px; }
+.btn-secondary { background: #E5E7EB; border: none; padding: 0 15px; border-radius: 10px; cursor: pointer; }
 
-function onScanSuccess(decodedText) {
-    if (navigator.vibrate) navigator.vibrate(200); // Vibración al escanear con éxito
-    closeModal('scannerModal');
-    stopScanner();
-    
-    if (scanMode === 'search') {
-        document.getElementById('searchInput').value = decodedText;
-        renderProducts(decodedText);
-    } else { // scanMode === 'input'
-        const existe = products.some(p => p.code === decodedText);
-        if (existe) {
-            alert("⚠️ Producto ya existe. No se puede usar el código.");
-        } else {
-            document.getElementById('prodCode').value = decodedText;
-        }
-    }
+/* ESTILOS DEL CARRITO */
+.cart-item {
+    display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee;
+    font-size: 0.95rem;
 }
+.cart-item:last-child { border-bottom: none; }
+.cart-price { font-weight: 600; color: var(--text); }
 
-window.openModal = function(id) { 
-    document.getElementById(id).classList.add('active'); 
+.cart-summary {
+    margin-top: 20px; padding-top: 15px; border-top: 2px solid #F3F4F6;
 }
-window.closeModal = function(id) { 
-    document.getElementById(id).classList.remove('active'); 
+.cart-total-row {
+    display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 8px;
+    font-size: 1.1rem;
+}
+.total-bs-final { color: var(--primary-dark); font-size: 1.3rem; }
+
+/* ERROR MESSAGE */
+.scanner-error-msg {
+    background: #FEE2E2; color: #B91C1C; padding: 10px; border-radius: 8px;
+    font-size: 0.85rem; margin-bottom: 10px; display: none; text-align: center;
 }
